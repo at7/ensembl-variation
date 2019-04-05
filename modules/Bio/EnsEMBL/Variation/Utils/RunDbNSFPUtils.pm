@@ -57,7 +57,7 @@ sub new {
 
   my $self = $class->SUPER::new(@_);
 
-  my ($working_dir, $dbnsfp_file, $dbnsfp_version, $assembly) = rearrange([qw(WORKING_DIR DBNSFP_FILE DBNSFP_VERSION ASSEMBLY)], @_);
+  my ($working_dir, $dbnsfp_file, $dbnsfp_version, $assembly, $pipeline_mode, $debug_mode) = rearrange([qw(WORKING_DIR DBNSFP_FILE DBNSFP_VERSION ASSEMBLY PIPELINE_MODE DEBUG_MODE)], @_);
   $self->{'working_dir'} = $working_dir;
   $self->{'dbnsfp_file'} = $dbnsfp_file;
   $self->{'dbnsfp_version'} = $dbnsfp_version;
@@ -68,6 +68,9 @@ sub new {
   if (! grep {$_ eq $dbnsfp_version} ('3.5a')) {
     die "dbNSFP version $dbnsfp_version is not supported.";
   }
+
+  $self->{'pipeline_mode'} = (!defined $pipeline_mode) ? 1 : $pipeline_mode; # default set to 1
+  $self->{'debug_mode'} = $debug_mode;
 
   return $self;
 }
@@ -102,7 +105,7 @@ my $column_names = {
     },
     'assembly_specific' => {
       'GRCh37' => {
-        pos => 'pos(1-based)'
+        pos => 'hg19_pos(1-based)'
       },
       'GRCh38' => {
         pos => 'pos(1-based)'
@@ -122,22 +125,50 @@ sub run {
   my $translation = $self->get_translation($translation_stable_id);
   my $translation_seq = $translation->seq;
   my $transcript = $translation->transcript;
-  my $reverse = $transcript->strand < 0;
+  $self->reverse($transcript->strand < 0);
   my $transcript_stable_id = $transcript->stable_id;
 
   $self->init_protein_matrix($translation, $translation_md5);
 
-  my @amino_acids = ();
-  my @all_triplets = @{$self->get_triplets($translation_stable_id)};
-
   $self->init_header;
-  my $obj = Bio::DB::HTS::Tabix->new(filename => $self->dbnsfp_file);
 
-  my $codonTable = Bio::Tools::CodonTable->new();
+  my $all_triplets = $self->get_triplets($translation_stable_id);
 
-  foreach my $entry (@all_triplets) {
+  $self->load_predictions_for_triplets($all_triplets);
+
+  if ($self->{'pipeline_mode'}) {
+    if ($translation_seq ne join('', @{$self->amino_acids})) {
+      my $fh = FileHandle->new($self->working_dir. "/$translation_stable_id", 'w');
+      print $fh "$transcript_stable_id\n$translation_seq\n";
+      print $fh join('', @{$self->amino_acids}), "\n";
+      $fh->close;
+    }
+    $self->store_protein_matrix($translation_stable_id, $translation_md5);
+  }
+}
+
+sub reverse {
+  my $self = shift;
+  return $self->{'reverse'} = shift if(@_);
+  return $self->{'reverse'};
+}
+
+sub amino_acids {
+  my $self = shift;
+  my $aa = shift;
+  if (defined $aa) {
+    push @{$self->{'amino_acids'}}, $aa; 
+  } else {
+    return $self->{'amino_acids'};
+  }
+}
+
+sub load_predictions_for_triplets {
+  my $self = shift;
+  my $triplets = shift; 
+  foreach my $entry (@$triplets) {
     my $aa = $entry->{aa};
-    push @amino_acids, $aa;
+    $self->amino_acids($aa);
     next if $aa eq 'X';
     my @coords = @{$entry->{coords}};
     my $chrom = $entry->{chrom};
@@ -147,7 +178,7 @@ sub run {
     foreach my $coord (@coords) {
       my $triplet_start = $coord->[0];
       my $triplet_end = $coord->[1];
-      my $iter = $obj->query("$chrom:$triplet_start-$triplet_end");
+      my $iter = $self->get_tabix_iterator($chrom, $triplet_start, $triplet_end);
       while (my $line = $iter->next) {
         my $data = $self->get_dbNSFP_row($line);
         my $chr = $data->{'chr'};
@@ -158,37 +189,52 @@ sub run {
         my $aaalt = $data->{'aaalt'};
         my $aaref = $data->{'aaref'};
         next if ($alt eq $ref);
-
-        my $nucleotide_position = ($reverse) ? $triplet_end - $pos : $pos - $triplet_start;
+        my $nucleotide_position = ($self->reverse) ? $triplet_end - $pos : $pos - $triplet_start;
         my $mutated_triplet =  $new_triplets->{$triplet_seq}->{$nucleotide_position}->{$alt};
-        my $mutated_aa = $codonTable->translate($mutated_triplet);
-
+        my $mutated_aa = $self->codon_table->translate($mutated_triplet);
         next if ($aaalt ne $mutated_aa);
-        if ($data->{revel_score} ne '.') {
-          my $prediction = ($data->{revel_score} >= $REVEL_CUTOFF) ? 'likely disease causing' : 'likely benign';
-          $self->add_prediction($i, $mutated_aa, 'dbnsfp_revel', $data->{revel_score}, get_revel_prediction($prediction));
-        }
-        if ($data->{meta_lr_score} ne '.') {
-          my $prediction = $predictions->{dbnsfp_meta_lr}->{$data->{meta_lr_pred}};
-          $self->add_prediction($i, $mutated_aa, 'dbnsfp_meta_lr', $data->{meta_lr_score}, $prediction);
-        }
-        if ($data->{mutation_assessor_score} ne '.') {
-          my $prediction = $predictions->{dbnsfp_mutation_assessor}->{$data->{mutation_assessor_pred}};
-          $self->add_prediction($i, $mutated_aa, 'dbnsfp_mutation_assessor', $data->{mutation_assessor_score}, $prediction);
-        }
+        $self->add_predictions($data, $i, $mutated_aa);
       }    
-    } # end foreach coord
-  } # end foreach triplet
-  if ($self->{'pipeline_mode'}) {
-    if ($translation_seq ne join('', @amino_acids)) {
-      my $fh = FileHandle->new($self->working_dir. "/$translation_stable_id", 'w');
-      print $fh "$transcript_stable_id\n$translation_seq\n";
-      print $fh join('', @amino_acids), "\n";
-      $fh->close;
     }
   }
+} 
 
-  $self->store_protein_matrix($translation_stable_id, $translation_md5);
+sub parser {
+  my $self = shift;
+  if (!defined $self->{'parser'}) {
+    my $dbnsfp_file = $self->dbnsfp_file;
+    $self->{'parser'} = Bio::DB::HTS::Tabix->new(filename => $dbnsfp_file);
+  }
+  return $self->{'parser'};
+}
+
+sub codon_table {
+  my $self = shift;
+  if (!defined $self->{'codon_table'}) {
+    $self->{'codon_table'} = Bio::Tools::CodonTable->new();
+  }
+  return $self->{'codon_table'};
+}
+
+sub get_tabix_iterator {
+  my ($self, $chrom, $triplet_start, $triplet_end) = @_;
+  return $self->parser->query("$chrom:$triplet_start-$triplet_end");
+}
+
+sub add_predictions {
+  my ($self, $data, $i, $mutated_aa) = @_;
+  if ($data->{revel_score} ne '.') {
+    my $prediction = ($data->{revel_score} >= $REVEL_CUTOFF) ? 'likely disease causing' : 'likely benign';
+    $self->add_prediction($i, $mutated_aa, 'dbnsfp_revel', $data->{revel_score}, $prediction);
+  }
+  if ($data->{meta_lr_score} ne '.') {
+    my $prediction = $predictions->{dbnsfp_meta_lr}->{$data->{meta_lr_pred}};
+    $self->add_prediction($i, $mutated_aa, 'dbnsfp_meta_lr', $data->{meta_lr_score}, $prediction);
+  }
+  if ($data->{mutation_assessor_score} ne '.') {
+    my $prediction = $predictions->{dbnsfp_mutation_assessor}->{$data->{mutation_assessor_pred}};
+    $self->add_prediction($i, $mutated_aa, 'dbnsfp_mutation_assessor', $data->{mutation_assessor_score}, $prediction);
+  }
 }
 
 sub add_prediction {
@@ -256,7 +302,8 @@ sub header {
 sub init_header {
   my $self = shift;
   my $header;
-  open HEAD, "tabix -fh $self->dbnsfp_file 1:1-1 2>&1 | ";
+  my $dbnsfp_file = $self->dbnsfp_file;
+  open HEAD, "tabix -fh $dbnsfp_file 1:1-1 2>&1 | ";
   while(<HEAD>) {
     next unless /^\#/;
     chomp;
@@ -297,12 +344,12 @@ sub store_protein_matrix {
     my $pred_matrix = $pred_matrices->{$analysis};
     if ($self->{results_available}->{$analysis}) {
       $pfpma->store($pred_matrix);
-
       if ($self->{'debug_mode'}) {
         my $fh = FileHandle->new($self->working_dir. "/$analysis\_$translation_stable_id", 'w');
+        print $self->working_dir. "/$analysis\_$translation_stable_id", "\n";
         my $matrix = $pfpma->fetch_by_analysis_translation_md5($analysis, $translation_md5); 
         my $debug_data = $self->{debug_data};
-        foreach my $i (keys %{$debug_data->{$analysis}}) {
+        foreach my $i (sort keys %{$debug_data->{$analysis}}) {
           foreach my $aa (keys %{$debug_data->{$analysis}->{$i}}) {
             next if ($aa eq '*');
             foreach my $prediction (keys %{$debug_data->{$analysis}->{$i}->{$aa}}) {
