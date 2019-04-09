@@ -43,8 +43,6 @@ use Bio::EnsEMBL::Storable;
 use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 use Bio::EnsEMBL::Registry;
 
-#our @ISA = qw(Bio::EnsEMBL::Storable);
-
 sub new {
   my $caller = shift;
   my $class = ref($caller) || $caller;

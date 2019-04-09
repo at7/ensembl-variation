@@ -37,7 +37,7 @@ This module contains functions used in the variant quality control process.
 use strict;
 use warnings;
 
-package Bio::EnsEMBL::Variation::Utils::RunDbNSFPUtils;
+package Bio::EnsEMBL::Variation::Utils::RunCADDUtils;
 
 use Bio::EnsEMBL::Utils::Argument qw(rearrange);
 use Bio::EnsEMBL::Variation::Utils::BaseProteinFunctionUtils;
@@ -57,16 +57,13 @@ sub new {
 
   my $self = $class->SUPER::new(@_);
 
-  my ($working_dir, $dbnsfp_file, $dbnsfp_version, $assembly, $pipeline_mode, $debug_mode) = rearrange([qw(WORKING_DIR DBNSFP_FILE DBNSFP_VERSION ASSEMBLY PIPELINE_MODE DEBUG_MODE)], @_);
+  my ($working_dir, $cadd_file, $dbnsfp_version, $assembly, $pipeline_mode, $debug_mode) = rearrange([qw(WORKING_DIR CADD_FILE CADD_VERSION ASSEMBLY PIPELINE_MODE DEBUG_MODE)], @_);
   $self->{'working_dir'} = $working_dir;
-  $self->{'dbnsfp_file'} = $dbnsfp_file;
-  $self->{'dbnsfp_version'} = $dbnsfp_version;
+  $self->{'cadd_file'} = $dbnsfp_file;
+  $self->{'cadd_version'} = $dbnsfp_version;
   $self->{'assembly'} = $assembly;
   if (! grep {$_ eq $assembly} ('GRCh37', 'GRCh38')) {
     die "Assembly $assembly is not supported.";
-  }
-  if (! grep {$_ eq $dbnsfp_version} ('3.5a')) {
-    die "dbNSFP version $dbnsfp_version is not supported.";
   }
 
   $self->{'pipeline_mode'} = (!defined $pipeline_mode) ? 1 : $pipeline_mode; # default set to 1
@@ -74,48 +71,6 @@ sub new {
 
   return $self;
 }
-
-my $predictions = {
-  dbnsfp_meta_lr => {
-    T => 'tolerated',
-    D => 'damaging',
-  },
-  dbnsfp_mutation_assessor => {
-    H => 'high',
-    M => 'medium',
-    L => 'low',
-    N => 'neutral',
-  }
-};
-
-my $column_names = {
-  '3.5a' => {
-    assembly_unspecific => {
-      chr => '#chr',
-      ref => 'ref',
-      refcodon => 'refcodon',
-      alt => 'alt',
-      aaalt => 'aaalt',
-      aaref => 'aaref',
-      revel_score => 'REVEL_score',
-      meta_lr_score => 'MetaLR_score',
-      meta_lr_pred => 'MetaLR_pred',
-      mutation_assessor_score => 'MutationAssessor_score_rankscore',
-      mutation_assessor_pred => 'MutationAssessor_pred',
-    },
-    'assembly_specific' => {
-      'GRCh37' => {
-        pos => 'hg19_pos(1-based)'
-      },
-      'GRCh38' => {
-        pos => 'pos(1-based)'
-      },
-    },
-  },
-  '4.0b1' => {
-
-  }
-};
 
 sub run {
   my $self = shift;
@@ -166,9 +121,9 @@ sub amino_acids {
 sub load_predictions_for_triplets {
   my $self = shift;
   my $triplets = shift; 
-  foreach my $entry (@$triplets) {
+  foreach my $entry (@all_triplets) {
     my $aa = $entry->{aa};
-    $self->amino_acids($aa);
+    push @amino_acids, $aa;
     next if $aa eq 'X';
     my @coords = @{$entry->{coords}};
     my $chrom = $entry->{chrom};
@@ -180,21 +135,18 @@ sub load_predictions_for_triplets {
       my $triplet_end = $coord->[1];
       my $iter = $self->get_tabix_iterator($chrom, $triplet_start, $triplet_end);
       while (my $line = $iter->next) {
-        my $data = $self->get_dbNSFP_row($line);
-        my $chr = $data->{'chr'};
-        my $pos = $data->{'pos'};
-        my $ref = $data->{'ref'};
-        my $refcodon = $data->{'refcodon'};
-        my $alt = $data->{'alt'};
-        my $aaalt = $data->{'aaalt'};
-        my $aaref = $data->{'aaref'};
+        my $data = $self->get_CADD_row($line);
+        my $chr = $data->{'#Chr'};
+        my $pos = $data->{'Pos'};
+        my $ref = $data->{'Ref'};
+        my $alt = $data->{'Alt'};
+        my $cadd_phred = $data{'PHRED'};
         next if ($alt eq $ref);
-        my $nucleotide_position = ($self->reverse) ? $triplet_end - $pos : $pos - $triplet_start;
-        my $mutated_triplet =  $new_triplets->{$triplet_seq}->{$nucleotide_position}->{$alt};
-        my $mutated_aa = $self->codon_table->translate($mutated_triplet);
-        next if ($aaalt ne $mutated_aa);
+        my $nucleotide_position = ($reverse) ? $triplet_end - $pos : $pos - $triplet_start;
+        my $mutated_triplet = $new_triplets->{$triplet_seq}->{$nucleotide_position}->{$alt};
+        my $mutated_aa = $codonTable->translate($mutated_triplet);
         $self->add_predictions($data, $i, $mutated_aa);
-      }    
+      }
     }
   }
 } 
@@ -202,8 +154,8 @@ sub load_predictions_for_triplets {
 sub parser {
   my $self = shift;
   if (!defined $self->{'parser'}) {
-    my $dbnsfp_file = $self->dbnsfp_file;
-    $self->{'parser'} = Bio::DB::HTS::Tabix->new(filename => $dbnsfp_file);
+    my $cadd_file = $self->cadd_file;
+    $self->{'parser'} = Bio::DB::HTS::Tabix->new(filename => $cadd_file);
   }
   return $self->{'parser'};
 }
@@ -223,17 +175,9 @@ sub get_tabix_iterator {
 
 sub add_predictions {
   my ($self, $data, $i, $mutated_aa) = @_;
-  if ($data->{revel_score} ne '.') {
-    my $prediction = ($data->{revel_score} >= $REVEL_CUTOFF) ? 'likely disease causing' : 'likely benign';
-    $self->add_prediction($i, $mutated_aa, 'dbnsfp_revel', $data->{revel_score}, $prediction);
-  }
-  if ($data->{meta_lr_score} ne '.') {
-    my $prediction = $predictions->{dbnsfp_meta_lr}->{$data->{meta_lr_pred}};
-    $self->add_prediction($i, $mutated_aa, 'dbnsfp_meta_lr', $data->{meta_lr_score}, $prediction);
-  }
-  if ($data->{mutation_assessor_score} ne '.') {
-    my $prediction = $predictions->{dbnsfp_mutation_assessor}->{$data->{mutation_assessor_pred}};
-    $self->add_prediction($i, $mutated_aa, 'dbnsfp_mutation_assessor', $data->{mutation_assessor_score}, $prediction);
+  if ($data->{'PHRED'} ne '.') {
+    my $prediction = ($data->{'PHRED'} >= $CADD_CUTOFF) ? 'likely deleterious' : 'likely benign';
+    $self->add_prediction($i, $mutated_add, 'cadd', $data->{'PHRED'}, $prediction);
   }
 }
 
@@ -249,28 +193,16 @@ sub add_prediction {
  
   $self->{results_available}->{$predictor} = 1;
   $self->{debug_data}->{$predictor}->{$i}->{$mutated_aa}->{$prediction} = $score if ($self->{'debug_mode'});
-
 }
 
-sub get_dbNSFP_row {
+sub get_CADD_row {
   my $self = shift;
   my $line = shift;
   $line =~ s/\r$//g;
   my @split = split /\t/, $line;
   my $header = $self->header;
-  my $assembly = $self->assembly;
-  my $dbnsfp_version = $self->dbnsfp_version;
-  my %raw_data = map {$header->[$_] => $split[$_]} (0..(scalar @{$header} - 1));
-  my $data = {};
-  my $assembly_unspecific = $column_names->{$dbnsfp_version}->{assembly_unspecific};
-  foreach my $column_name (keys %{$assembly_unspecific}) {
-    $data->{$column_name} = $raw_data{$assembly_unspecific->{$column_name}};
-  }
-  my $assembly_specific =  $column_names->{$dbnsfp_version}->{assembly_specific}->{$assembly}; 
-  foreach my $column_name (keys %{$assembly_specific}) {
-    $data->{$column_name} = $raw_data{$assembly_specific->{$column_name}};
-  }
-  return $data;
+  my %data = map {$header->[$_] => $split[$_]} (0..(scalar @{$header} - 1));
+  return \%data;
 }
 
 sub working_dir {
@@ -278,14 +210,14 @@ sub working_dir {
   return $self->{'working_dir'};
 }
 
-sub dbnsfp_file {
+sub cadd_file {
   my $self = shift;
-  return $self->{'dbnsfp_file'};
+  return $self->{'cadd_file'};
 }
 
-sub dbnsfp_version {
+sub cadd_version {
   my $self = shift;
-  return $self->{'dbnsfp_version'};
+  return $self->{'cadd_version'};
 }
 
 sub assembly {
@@ -303,8 +235,8 @@ sub header {
 sub init_header {
   my $self = shift;
   my $header;
-  my $dbnsfp_file = $self->dbnsfp_file;
-  open HEAD, "tabix -fh $dbnsfp_file 1:1-1 2>&1 | ";
+  my $cadd_file = $self->cadd_file;
+  open HEAD, "tabix -fh $cadd_file 1:1-1 2>&1 | ";
   while(<HEAD>) {
     next unless /^\#/;
     chomp;
@@ -320,7 +252,7 @@ sub init_protein_matrix {
   my $translation = shift;
   my $translation_md5 = shift;
   my $pred_matrices = {};
-  foreach my $analysis (qw/dbnsfp_revel dbnsfp_meta_lr dbnsfp_mutation_assessor/) {
+  foreach my $analysis (qw/cadd/) {
     my $pred_matrix = Bio::EnsEMBL::Variation::ProteinFunctionPredictionMatrix->new(
       -analysis       => $analysis,
       -peptide_length   => $translation->length,
@@ -331,38 +263,5 @@ sub init_protein_matrix {
 
   $self->{pred_matrices} = $pred_matrices;
 }
-
-sub store_protein_matrix {
-  my $self = shift;
-  my $translation_stable_id = shift;
-  my $translation_md5 = shift;
-  my $pred_matrices = $self->{pred_matrices};
-
-  my $vdba = $self->get_species_adaptor('variation');
-  my $pfpma = $vdba->get_ProteinFunctionPredictionMatrixAdaptor or die "Failed to get matrix adaptor";
-
-  foreach my $analysis (keys %$pred_matrices) {
-    my $pred_matrix = $pred_matrices->{$analysis};
-    if ($self->{results_available}->{$analysis}) {
-      $pfpma->store($pred_matrix);
-      if ($self->{'debug_mode'}) {
-        my $fh = FileHandle->new($self->working_dir. "/$analysis\_$translation_stable_id", 'w');
-        print $self->working_dir. "/$analysis\_$translation_stable_id", "\n";
-        my $matrix = $pfpma->fetch_by_analysis_translation_md5($analysis, $translation_md5); 
-        my $debug_data = $self->{debug_data};
-        foreach my $i (sort keys %{$debug_data->{$analysis}}) {
-          foreach my $aa (keys %{$debug_data->{$analysis}->{$i}}) {
-            next if ($aa eq '*');
-            foreach my $prediction (keys %{$debug_data->{$analysis}->{$i}->{$aa}}) {
-              my ($new_pred, $new_score) = $matrix->get_prediction($i, $aa);
-              print $fh join(' ', $analysis, $i, $aa, $prediction, $debug_data->{$analysis}->{$i}->{$aa}->{$prediction}, $new_pred, $new_score), "\n";
-            }
-          }
-        }
-        $fh->close;
-      }
-    }
-  }
-} 
 
 1;

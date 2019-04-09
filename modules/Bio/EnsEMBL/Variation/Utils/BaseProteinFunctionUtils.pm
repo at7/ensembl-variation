@@ -58,7 +58,8 @@ sub get_stable_id_for_md5 {
 
   $get_stable_id_sth->execute($md5);
   my ($stable_id) = $get_stable_id_sth->fetchrow_array;
-  return $stable_id;
+  return $stable_id if (defined $stable_id);
+  return $md5;
 }
 
 sub get_translation {
