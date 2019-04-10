@@ -67,7 +67,7 @@ foreach my $analysis (keys %$pred_matrices) {
     }
   }
 }
-my @sorted_results = sort {$a->new_score <=> $b->new_score} @results;
+my @sorted_results = sort {$a->{new_score} <=> $b->{new_score}} @results;
 my $expected_results = [
           {
             'new_score' => '0.033',
