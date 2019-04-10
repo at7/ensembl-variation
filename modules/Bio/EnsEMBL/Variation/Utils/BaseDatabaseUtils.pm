@@ -29,7 +29,8 @@ limitations under the License.
 
 =head1 DESCRIPTION
 
-This module contains functions used in the variant quality control process. 
+This module contains helper methods for managing database connections
+and API adaptors. 
 
 =cut
 

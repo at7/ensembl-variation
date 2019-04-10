@@ -29,7 +29,8 @@ limitations under the License.
 
 =head1 DESCRIPTION
 
-This module contains functions used in the variant quality control process. 
+This module contains functionality for adding scores and predictions
+for amino acid changes in a translation from file.
 
 =cut
 
@@ -67,22 +68,6 @@ my $LOW_QUALITY = 0;
     boolean - If set to 1 write debug information to the working directory. The default value is 0.
   Arg [-write_mode] :
     boolean - If set to 1 write error file which reports missmatch between protein sequence and translated protein sequence as a result of annotation.
-
-  Example    : 
-  my $cadd = Bio::EnsEMBL::Variation::Utils::RunCADDAnnotationUtils->new(
-    -species => 'Homo_sapiens',
-    -annotation_file => $dir . '/testdata/cadd_v1.3_grch37.txt.gz',
-    -assembly => 'GRCh37',
-    -annotation_file_version => 'v1.3',
-    -pipeline_mode => 0,
-    -debug_mode => 1,
-  );
-
-  Description: Constructor. Instantiates a new BaseProteinFunctionAnnotation object.
-  Returntype : BaseProteinFunctionAnnotation 
-  Exceptions : none
-  Caller     : general
-  Status     : Stable
 =cut
 
 sub new {
@@ -106,22 +91,26 @@ sub new {
 }
 
 =head2 run
-  Arg [1]    : String $translation_md5  
-  Example    : $->run('');
+  Arg 1      : String $translation_md5  
+  Arg 2      : (optional) Hashref of translation mappings for testing.
+  Example    : $self->run('4d08f77b4cb14259684ce086ba089565');
+               $self->run('4d08f77b4cb14259684ce086ba089565', {'4d08f77b4cb14259684ce086ba089565' => 'ENSP00000435699'});
   Description: Runs protein function prediction annotations for a protein translation.
   Returntype : none
   Exceptions : throws on missing argument
                throws on undefined $translation_stable_id
-  Caller     : general
-  Status     : At Risk
+  Caller     : Bio::EnsEMBL::Variation::Utils::CADDProteinFunctionAnnotation::run() 
+               Bio::EnsEMBL::Variation::Utils::DbNSFPProteinFunctionAnnotation::run()
+  Status     : 
 =cut
 
 sub run {
   my $self = shift;
   my $translation_md5 = shift;
-  throw("Translation_md5 string expected") if (!defined $translation_md5);
+  my $translation_mappings = shift;
 
-  my $translation_stable_id = $self->get_stable_id_for_md5($translation_md5);
+  throw("Translation_md5 string expected") if (!defined $translation_md5);
+  my $translation_stable_id = (defined $translation_mappings) ? $translation_mappings->{$translation_md5} : $self->get_stable_id_for_md5($translation_md5);
   throw("No translation_stable_id for translation_md5 $translation_md5") if (!defined $translation_stable_id);
 
   my $translation = $self->get_translation($translation_stable_id);
@@ -170,12 +159,24 @@ sub amino_acids {
   }
 }
 
+=head2 analysis
+  Arg 1      : Arrayref of string analysis (optional)  
+  Example    : $self->analysis([qw/dbnsfp_revel dbnsfp_meta_lr dbnsfp_mutation_assessor/]);
+  Description: Set and get available analysis. 
+  Returntype : 
+  Exceptions : None
+  Caller     : General
+  Status     : At Risk
+=cut
+sub analysis {
+  my $self = shift;
+  return $self->{'analysis'} = shift if(@_);
+  return $self->{'analysis'};
+}
+
 =head2 annotation_file
-  Arg [1]    : String $aa Amino acid  
-  Example    : $runCADDAnnotation->amino_acids('K');
-  Description: Holds reference to an array of string. This method is used to collect each
-               annotated amino acid. The final array will be compared against the input translation.
-  Returntype : Arrayref of string
+  Description: Get annotation file
+  Returntype : String $annotation_file
   Exceptions : None
   Caller     : General
   Status     : At Risk
@@ -185,34 +186,65 @@ sub annotation_file {
   return $self->{'annotation_file'};
 }
 
+=head2 annotation_file_version
+  Description: Get annotation file version
+  Returntype : String $annotation_file_version
+  Exceptions : None
+  Caller     : General
+  Status     : At Risk
+=cut
 sub annotation_file_version {
   my $self = shift;
   return $self->{'annotation_file_version'};
 }
 
+=head2 assembly
+  Description: Get assembly 
+  Returntype : String $assembly
+  Exceptions : None
+  Caller     : General
+  Status     : At Risk
+=cut
 sub assembly {
   my $self = shift;
   return $self->{'assembly'};
 }
 
-
+=head2 reverse
+  Arg 1      : (optional) Boolean $reverse  
+  Description: Get and set reverse flag 
+  Returntype : Boolean $reverse
+  Exceptions : None
+  Caller     : General
+  Status     : At Risk
+=cut
 sub reverse {
   my $self = shift;
   return $self->{'reverse'} = shift if(@_);
   return $self->{'reverse'};
 }
 
-sub analysis {
-  my $self = shift;
-  return $self->{'analysis'} = shift if(@_);
-  return $self->{'analysis'};
-}
-
+=head2 working_dir
+  Description: Get working directory
+  Returntype : String $working_dir 
+  Exceptions : None
+  Caller     : General
+  Status     : At Risk
+=cut
 sub working_dir {
   my $self = shift;
   return $self->{'working_dir'};
 }
 
+=head2 header
+  Description: - Get arrayref of header row 
+               - Initialise at first use
+  Returntype : Arrayref $header 
+  Exceptions : None
+  Caller     : Bio::EnsEMBL::Variation::Utils::CADDProteinFunctionAnnotation::get_CADD_row 
+               Bio::EnsEMBL::Variation::Utils::DbNSFPProteinFunctionAnnotation::get_dbNSFP_row
+  Status     : At Risk
+=cut
 sub header {
   my $self = shift;
   return $self->{'header'} = shift if(@_);
@@ -220,6 +252,13 @@ sub header {
   return $self->{'header'};
 }
 
+=head2 init_header
+  Description: Initialise header row as arrayref 
+  Returntype : None 
+  Exceptions : None
+  Caller     : header()
+  Status     : 
+=cut
 sub init_header {
   my $self = shift;
   my $header;
@@ -235,6 +274,14 @@ sub init_header {
   $self->header($header);
 }
 
+=head2 parser
+  Example    : $self->parser->query("$chrom:$start-$end"); 
+  Description: Get parser for annotation file 
+  Returntype : Bio::DB::HTS::Tabix $parser 
+  Exceptions : none
+  Caller     : get_tabix_iterator() 
+  Status     : 
+=cut
 sub parser {
   my $self = shift;
   if (!defined $self->{'parser'}) {
@@ -244,6 +291,29 @@ sub parser {
   return $self->{'parser'};
 }
 
+=head2 get_tabix_iterator
+  Arg 1      : Int $chrom 
+  Arg 2      : Int $start  
+  Arg 3      : Int $end 
+  Example    : my $iter = $self->get_tabix_iterator($chrom, $triplet_start, $triplet_end); 
+  Description: Get iterator over provided region $chrom, $start, $end 
+  Returntype : Bio::DB::HTS::Tabix::Iterator $iter 
+  Exceptions : none
+  Caller     : load_predictions_for_triplets() 
+  Status     : 
+=cut
+sub get_tabix_iterator {
+  my ($self, $chrom, $start, $end) = @_;
+  return $self->parser->query("$chrom:$start-$end");
+}
+
+=head2 codon_table
+  Description: Get Bio::Tools::CodonTable object
+  Returntype : Bio::Tools::CodonTable $codon_table
+  Exceptions : None
+  Caller     : get_triplets() 
+  Status     : 
+=cut
 sub codon_table {
   my $self = shift;
   if (!defined $self->{'codon_table'}) {
@@ -252,53 +322,14 @@ sub codon_table {
   return $self->{'codon_table'};
 }
 
-sub get_tabix_iterator {
-  my ($self, $chrom, $triplet_start, $triplet_end) = @_;
-  return $self->parser->query("$chrom:$triplet_start-$triplet_end");
-}
-
-sub add_prediction {
-  my ($self, $i, $mutated_aa, $predictor, $score, $prediction) = @_;
-  $self->{pred_matrices}->{$predictor}->add_prediction(
-    $i,
-    $mutated_aa,
-    $prediction,
-    $score,
-    $LOW_QUALITY,
-  );
-
-  $self->{results_available}->{$predictor} = 1;
-  $self->{debug_data}->{$predictor}->{$i}->{$mutated_aa}->{$prediction} = $score if ($self->{'debug_mode'});
-
-}
-
-sub working_dir {
-  my $self = shift;
-  return $self->{'working_dir'};
-}
-
-sub header {
-  my $self = shift;
-  return $self->{'header'} = shift if(@_);
-  $self->init_header if (!defined $self->{'header'});
-  return $self->{'header'};
-}
-
-sub init_header {
-  my $self = shift;
-  my $header;
-  my $annotation_file = $self->annotation_file;
-  open HEAD, "tabix -fh $annotation_file 1:1-1 2>&1 | ";
-  while(<HEAD>) {
-    next unless /^\#/;
-    chomp;
-    $header = [split];
-  }
-  close HEAD;
-
-  $self->header($header);
-}
-
+=head2 get_stable_id_for_md5
+  Arg 1      : String $translation_md5 
+  Description: Get translation stable for md5 from translation_mapping table
+  Returntype : String $translation_stable_id  
+  Exceptions : none
+  Caller     : run() 
+  Status     : 
+=cut
 sub get_stable_id_for_md5 {
   my ($self, $md5) = @_;
   my $var_dba = $self->get_species_adaptor('variation');
@@ -310,13 +341,22 @@ sub get_stable_id_for_md5 {
 
   $get_stable_id_sth->execute($md5);
   my ($stable_id) = $get_stable_id_sth->fetchrow_array;
-  return $stable_id if (defined $stable_id);
-  return $md5;
+  return $stable_id;
 }
 
+=head2 get_translation
+  Arg 1      : String $translation_stable_id 
+  Description: - Get translation object 
+               - Choose core database based on translation prefix
+  Returntype : Bio::EnsEMBL::Translation $translation
+  Exceptions : throw on missing value
+  Caller     : run() 
+  Status     : 
+=cut
 sub get_translation {
   my $self = shift;
   my $translation_stable_id = shift;
+  throw("Translation_stable_id string expected") if (!defined $translation_stable_id);
   my $core_type = ($translation_stable_id =~ /^NP|XP/) ? 'otherfeatures' : 'core';
   my $cdba = $self->get_species_adaptor($core_type);
   my $translation_adaptor = $cdba->get_TranslationAdaptor or die "Failed to get translation adaptor";
@@ -324,6 +364,37 @@ sub get_translation {
   return $translation;
 }
 
+=head2 mutate
+  Arg 1      : String $triplet  
+  Arg 2      : Boolean $reverse
+  Example    : 
+  Description: Mutate all positions of the input triplet sequence 
+  Returntype : Hashref $triplet with all possible mutation e.g. for triplet ATG:
+                { 'ATG' => {
+                           '1' => {
+                                    'A' => 'AAG',
+                                    'T' => 'ATG',
+                                    'C' => 'ACG',
+                                    'G' => 'AGG'
+                                  },
+                           '0' => {
+                                    'A' => 'ATG',
+                                    'T' => 'TTG',
+                                    'C' => 'CTG',
+                                    'G' => 'GTG'
+                                  },
+                           '2' => {
+                                    'A' => 'ATA',
+                                    'T' => 'ATT',
+                                    'C' => 'ATC',
+                                    'G' => 'ATG'
+                                  }
+                         }
+                  }
+  Exceptions : None
+  Caller     : get_triplets() 
+  Status     : 
+=cut
 sub mutate {
   my $self = shift;
   my $triplet = shift;
@@ -331,19 +402,30 @@ sub mutate {
   my @nucleotides = split('', $triplet);
   my $new_triplets;
   foreach my $i (0 .. $#nucleotides) {
-    my $mutations = ['A', 'G', 'C', 'T'];
-    $new_triplets = $self->get_mutated_triplets($triplet, $mutations, $i, $new_triplets, $reverse);
+    $new_triplets = $self->get_mutated_triplets($triplet, $i, $new_triplets, $reverse);
   }
   return $new_triplets;
 }
 
+=head2 get_mutated_triplets
+  Arg 1      : String $triplet   
+  Arg 2      : Int $nucleotide_position 
+  Arg 3      : Hashref $new_triplets 
+  Arg 4      : Boolean reverse
+  Example    : 
+  Description: Generate all mutations for a given triplet position 
+  Returntype : 
+  Exceptions : None
+  Caller     : mutate()
+  Status     : At Risk
+=cut
 sub get_mutated_triplets {
   my $self = shift;
   my $triplet = shift;
-  my $mutations = shift;
   my $position = shift;
   my $new_triplets = shift;
   my $reverse = shift;
+  my $mutations = ['A', 'G', 'C', 'T'];
   foreach my $mutation (@$mutations) {
     my $update_triplet = $triplet;
     if ($reverse) {
@@ -358,15 +440,34 @@ sub get_mutated_triplets {
   return $new_triplets;
 }
 
+=head2 get_triplets
+  Arg 1      : String $translation_stable_id  
+  Example    : 
+  Description: - get translation object for translation_stable_id
+               - get corresponding transcript object for translation object
+               - iterate over each amino acid of the translation object and
+                 use the transcript_mapper to get pep2genomic coordinates     
+               - foreach set of coordinates for an amino acid build the 
+                 triplet sequence and store the genomic start and end
+                 coordinates of the triplet 
+               - create an entry of coords, aa_position, chrom and triplet_seq
+                 for each triplet
+               - add the amino acid (aa) to each entry by using the codon table to
+                 translate the triplet to amino acid
+               - add all possible mutations (new_triplets) for a triplet using mutate() 
+  Returntype : arrayref of hashes. Each hash has the following keys: triplet_seq, coords,
+               aa_position, aa_position, new_triplets, aa 
+  Exceptions : None
+  Caller     : run()
+  Status     : At Risk
+=cut
 sub get_triplets {
   my $self = shift;
   my $translation_stable_id = shift;
+  my $translation = $self->get_translation($translation_stable_id);
   my $core_type = ($translation_stable_id =~ /^NP|XP/) ? 'otherfeatures' : 'core';
   my $cdba = $self->get_species_adaptor($core_type);
-  my $translation_adaptor = $cdba->get_TranslationAdaptor or die "Failed to get translation adaptor";
-  my $translation = $translation_adaptor->fetch_by_stable_id($translation_stable_id);
   my $slice_adaptor = $cdba->get_SliceAdaptor or die "Failed to get slice adaptor";
-
   my $transcript = $translation->transcript;
   my $chrom = $transcript->seq_region_name;
   my $start = $transcript->seq_region_start;
@@ -375,7 +476,7 @@ sub get_triplets {
   my $slice = $slice_adaptor->fetch_by_region('toplevel', $chrom,  $start, $end);
   my $transcript_mapper = $transcript->get_TranscriptMapper();
 
-  my $codonTable = Bio::Tools::CodonTable->new();
+  my $codon_table = $self->codon_table;
   my @all_triplets = ();
   foreach my $i (1 .. $translation->length) {
     my @pep_coordinates = $transcript_mapper->pep2genomic($i, $i);
@@ -397,7 +498,7 @@ sub get_triplets {
       chrom => $chrom,
       triplet_seq => $triplet,
     };
-    my $aa = $codonTable->translate($triplet);
+    my $aa = $codon_table->translate($triplet);
     if (!$aa) {
       $entry->{aa} = 'X';
     } else {
@@ -411,6 +512,16 @@ sub get_triplets {
   return \@all_triplets;
 }
 
+=head2 init_protein_matrix
+  Arg 1      : Bio::EnsEMBL::Translation $translation
+  Arg 2      : String $translation_md5
+  Example    : 
+  Description: Initialise ProteinFunctionPredictionMatrix for each analysis.
+  Returntype : 
+  Exceptions : none
+  Caller     : run()
+  Status     : 
+=cut
 sub init_protein_matrix {
   my $self = shift;
   my $translation = shift;
@@ -428,6 +539,71 @@ sub init_protein_matrix {
   $self->{pred_matrices} = $pred_matrices;
 }
 
+=head2 load_predictions_for_triplets
+  Arg 1      : Arrayref of triplet hashes
+  Description: Get and store score and prediction for each mutated triplet
+  Returntype : None
+  Exceptions : None
+  Caller     : run()
+  Status     :
+=cut
+sub load_predictions_for_triplets {
+  return;
+}
+
+=head2 add_predictions
+  Arg 1      : Hashref mapping header column to row value
+  Arg 2      : Int $i amino acid position
+  Arg 3      : String $mutated_aa mutated amino acid
+  Description: Store score and prediction for mutated amino acid
+               if score exists
+  Returntype : None
+  Exceptions : None
+  Caller     : load_predictions_for_triplets()
+  Status     :
+=cut
+sub add_predictions {
+  return;
+}
+
+=head2 add_prediction
+  Arg 1      : Int - location of amino acid in translation 
+  Arg 2      : String - amino acid 
+  Arg 3      : String - analysis e.g. dbnsfp_mutation_assessor, cadd
+  Arg 4      : Double - score
+  Arg 5      : String - prediction 
+  Example    : 
+  Description: Collect all prediction results. 
+  Returntype : 
+  Exceptions : None
+  Caller     : Bio::EnsEMBL::Variation::Utils::RunCADDAnnotationUtils::add_predictions() 
+               Bio::EnsEMBL::Variation::Utils::RunDbNSFPAnnotationUtils::add_predictions() 
+  Status     : 
+=cut
+sub add_prediction {
+  my ($self, $i, $mutated_aa, $analysis, $score, $prediction) = @_;
+  $self->{pred_matrices}->{$analysis}->add_prediction(
+    $i,
+    $mutated_aa,
+    $prediction,
+    $score,
+    $LOW_QUALITY,
+  );
+
+  $self->{results_available}->{$analysis} = 1;
+  $self->{debug_data}->{$analysis}->{$i}->{$mutated_aa}->{$prediction} = $score if ($self->{'debug_mode'});
+}
+
+=head2 store_protein_matrix
+  Arg 1      : String translation_stable_id
+  Arg 2      : String translation_md5
+  Example    : $self->store_protein_matrix('ENSP00000435699', '4d08f77b4cb14259684ce086ba089565');
+  Description: Store ProteinFunctionPredictionMatrix for each analysis and translation if results are available 
+  Returntype : none
+  Exceptions : none
+  Caller     : run()
+  Status     : 
+=cut
 sub store_protein_matrix {
   my $self = shift;
   my $translation_stable_id = shift;
@@ -441,7 +617,7 @@ sub store_protein_matrix {
     my $pred_matrix = $pred_matrices->{$analysis};
     if ($self->{results_available}->{$analysis}) {
       $pfpma->store($pred_matrix);
-      if ($self->{'debug_mode'}) {
+      if ($self->{'debug_mode'} && $self->{'write_mode'}) {
         my $fh = FileHandle->new($self->working_dir. "/$analysis\_$translation_stable_id", 'w');
         print $self->working_dir. "/$analysis\_$translation_stable_id", "\n";
         my $matrix = $pfpma->fetch_by_analysis_translation_md5($analysis, $translation_md5);
