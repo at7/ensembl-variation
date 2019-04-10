@@ -250,11 +250,15 @@ sub update_meta{
   }
 
   if ($self->required_param('dbnsfp_run_type')  == FULL){
-    $update_meta_sth->execute('dbnsfp_version', $self->required_param('dbnsfp_version'));
+    my $assembly = $self->get_assembly();
+    my $annotation = $self->param('dbnsfp_annotation');
+    $update_meta_sth->execute('dbnsfp_version', $annotation->{$assembly}->{'version'});
   }
 
   if ($self->required_param('cadd_run_type')  == FULL){
-    $update_meta_sth->execute('cadd_version', $self->required_param('cadd_version'));
+    my $assembly = $self->get_assembly();
+    my $annotation = $self->param('cadd_annotation');
+    $update_meta_sth->execute('cadd_version', $annotation->{$assembly}->{'version'});
   }
 
 }
