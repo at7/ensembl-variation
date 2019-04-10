@@ -194,9 +194,9 @@ sub default_options {
         cadd_working          => $self->o('species_dir').'/cadd_working',
         cadd_annotation       => { GRCh37 =>
                                       { file => $self->o('variation_data') . 'CADD/v1.4/grch37/whole_genome_SNVs.tsv.gz',
-                                        version => 'v1.4' ,
+                                        version => 'v1.4',
                                       },
-                                     GRCh38 =>
+                                   GRCh38 =>
                                       { file => $self->o('variation_data') . 'CADD/v1.5/grch38/whole_genome_SNVs.tsv.gz',
                                         version => 'v1.5',
                                       } 
@@ -246,7 +246,9 @@ sub pipeline_analyses {
                 sift_run_type   => $self->o('sift_run_type'),
                 pph_run_type    => $self->o('pph_run_type'),
                 dbnsfp_run_type => $self->o('dbnsfp_run_type'),
+                dbnsfp_annotation => $self->o('dbnsfp_annotation'),
                 cadd_run_type   => $self->o('cadd_run_type'),
+                cadd_annotation => $self->o('cadd_annotation'),
                 include_lrg     => $self->o('include_lrg'),
                 polyphen_dir    => $self->o('pph_dir'),
                 sift_dir        => $self->o('sift_dir'),                

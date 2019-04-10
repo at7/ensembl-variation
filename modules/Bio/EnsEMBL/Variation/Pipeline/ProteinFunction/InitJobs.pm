@@ -34,6 +34,8 @@ use Bio::EnsEMBL::Registry;
 
 use Bio::EnsEMBL::Variation::Pipeline::ProteinFunction::Constants qw(FULL UPDATE NONE);
 
+use Data::Dumper;
+
 use Digest::MD5 qw(md5_hex);
 
 use File::Path qw(make_path);
