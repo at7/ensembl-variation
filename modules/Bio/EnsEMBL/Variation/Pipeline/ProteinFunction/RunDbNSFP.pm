@@ -44,7 +44,7 @@ sub run {
     die "make_path failed: ".Dumper($err) if $err && @$err;
   }
 
-  my $assembly = $self->get_assembly($dbc, $self->param('species'));
+  my $assembly = $self->get_assembly();
   my $dbnsfp_annotation = $self->param('dbnsfp_annotation');
   my $annotation_file = $dbnsfp_annotation->{$assembly}->{file}; 
   my $annotation_file_version = $dbnsfp_annotation->{$assembly}->{version};

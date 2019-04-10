@@ -45,7 +45,7 @@ sub run {
     die "make_path failed: ".Dumper($err) if $err && @$err;
   }
 
-  my $assembly = $self->get_assembly($dbc, $self->param('species'));
+  my $assembly = $self->get_assembly();
   my $cadd_annotation = $self->param('cadd_annotation');
   my $annotation_file = $cadd_annotation->{$assembly}->{file};
   my $annotation_file_version = $cadd_annotation->{$assembly}->{version};
