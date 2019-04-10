@@ -67,8 +67,15 @@ foreach my $analysis (keys %$pred_matrices) {
     }
   }
 }
-
+my @sorted_results = sort {$a->new_score <=> $b->new_score} @results;
 my $expected_results = [
+          {
+            'new_score' => '0.033',
+            'new_pred' => 'tolerated',
+            'position' => 588,
+            'aa' => 'S',
+            'analysis' => 'dbnsfp_meta_lr'
+          },
           {
             'new_score' => '0.301',
             'new_pred' => 'likely benign',
@@ -83,16 +90,9 @@ my $expected_results = [
             'aa' => 'S',
             'analysis' => 'dbnsfp_mutation_assessor'
           },
-          {
-            'new_score' => '0.033',
-            'new_pred' => 'tolerated',
-            'position' => 588,
-            'aa' => 'S',
-            'analysis' => 'dbnsfp_meta_lr'
-          }
         ];
  
-cmp_deeply(\@results, $expected_results, "Retrieve scores and predictions from stored matrices.");
+cmp_deeply(\@sorted_results, $expected_results, "Retrieve scores and predictions from stored matrices.");
 
 my $all_triplets = $dbNSFP->get_triplets('ENSP00000435699'); # on forward strand
 my $first_triplet = $all_triplets->[0];
