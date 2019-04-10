@@ -149,5 +149,26 @@ sub run_cmd {
   }
 }
 
+sub get_assembly {
+  my ($self, $dbc, $species) = @_;
+  my $current_db_name = $dbc->dbname();
+  my $species_id = $self->get_species_id($dbc, $current_db_name, $species);
+  my $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system WHERE species_id = ".$species_id." ORDER BY rank LIMIT 1;");
+  $sth->execute();
+  my $assembly;
+  $sth->bind_columns(\$assembly);
+  $sth->execute();
+  $sth->fetch();
+  $sth->finish();
+
+  return $assembly;
+}
+
+sub get_species_id {
+  my ($self, $dbc, $current_db_name, $species) = @_;
+  my $species_id = $dbc->sql_helper()->execute_simple( -SQL =>qq/select species_id from $current_db_name.meta where meta_key = 'species.production_name' and meta_value ='$species';/);
+  return $species_id->[0];
+}
+  
 
 1;
