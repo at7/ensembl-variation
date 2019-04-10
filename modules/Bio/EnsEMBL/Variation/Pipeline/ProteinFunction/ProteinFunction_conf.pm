@@ -62,12 +62,13 @@ sub default_options {
 
         # the location of your ensembl checkout, the hive looks here for SQL files etc.
 
-        ensembl_cvs_root_dir    => $ENV{'HOME'} . '/src',
-        hive_root_dir           => $ENV{'HOME'} . '/src/ensembl-hive',
+        ensembl_cvs_root_dir    => $ENV{'HOME'} . '/bin',
+        hive_root_dir           => $ENV{'HOME'} . '/bin/ensembl-hive',
         
         pipeline_name           => 'protein_function',
-        pipeline_dir            => '/hps/nobackup/production/ensembl/'.$ENV{USER}.'/'.$self->o('pipeline_name'),
-        species_dir             => $self->o('pipeline_dir').'/'.$self->o('species'),
+#        pipeline_dir            => '/hps/nobackup/production/ensembl/'.$ENV{USER}.'/'.$self->o('pipeline_name'),
+#        species_dir             => $self->o('pipeline_dir').'/'.$self->o('species'),
+        species_dir => '/hps/nobackup2/production/ensembl/anja/release_97/human/protein_function/',
         # directory used for the hive's own output files
 
         output_dir              => $self->o('species_dir').'/hive_output',
@@ -96,11 +97,11 @@ sub default_options {
         # connection details for the hive's own database
 
         pipeline_db => {
-            -host   => 'mysql-ens-var-prod-2.ebi.ac.uk',
-            -port   => 4521,
+            -host   => 'mysql-ens-var-prod-1.ebi.ac.uk',
+            -port   => 4449,
             -user   => 'ensadmin',
             -pass   => $self->o('password'),            
-            -dbname => $ENV{USER}.'_'.$self->o('pipeline_name').'_'. $self->o('species'),
+            -dbname => $ENV{USER}.'_'.$self->o('pipeline_name').'_'. $self->o('species').'_new',
             -driver => 'mysql',
         },
         
@@ -174,18 +175,32 @@ sub default_options {
 
         sift_max_workers        => 500,
 
+        variation_data          => '/nfs/production/panda/ensembl/variation/data/', 
         dbnsfp_run_type         => FULL,
-        dbnsfp_max_workers      => 250,
+        dbnsfp_max_workers      => 50,
         dbnsfp_working          => $self->o('species_dir').'/dbnsfp_working',
-        dbnsfp_file             => '/nfs/production/panda/ensembl/variation/data/dbNSFP/3.5a/dbNSFP3.5a.txt.gz',
-        dbnsfp_version          => '3.5.a',
-
+    
+        dbnsfp_annotation       => { GRCh37 =>
+                                      { file => $self->o('variation_data') . 'dbNSFP/3.5a_grch37/dbNSFP3.5a_grch37.txt.gz'
+                                        version => '3.5a',
+                                      },
+                                     GRCh38 =>
+                                      { file => $self->o('variation_data') . 'dbNSFP/3.5a/dbNSFP3.5a.txt.gz',
+                                        version => '3.5a',
+                                      } 
+                                    },
         cadd_run_type         => FULL,
-        cadd_max_workers      => 250,
+        cadd_max_workers      => 50,
         cadd_working          => $self->o('species_dir').'/cadd_working',
-        cadd_file             => '/hps/nobackup2/production/ensembl/anja/CADD/whole_genome_SNVs.tsv.gz',
-        cadd_version          => 'GRCh38-v1.4',
-
+        cadd_annotation       => { GRCh37 =>
+                                      { file => $self->o('variation_data') . 'CADD/v1.4/grch37/whole_genome_SNVs.tsv.gz',
+                                        version => 'v1.4' ,
+                                      },
+                                     GRCh38 =>
+                                      { file => $self->o('variation_data') . 'CADD/v1.5/grch38/whole_genome_SNVs.tsv.gz',
+                                        version => 'v1.5',
+                                      } 
+                                  },
     };
 }
 
@@ -326,6 +341,8 @@ sub pipeline_analyses {
             -parameters     => {
                 dbnsfp_working => $self->o('dbnsfp_working'),
                 dbnsfp_file    => $self->o('dbnsfp_file'),
+                dbnsfp_version => $self->o('dbnsfp_version'),
+                assembly => $self->o('assembly'),
                 @common_params,
             },
             -failed_job_tolerance => 0,

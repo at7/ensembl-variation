@@ -187,7 +187,7 @@ sub fetch_input {
     my %required_md5s = map { $_ => 1 } (@sift_md5s, @pph_md5s, @dbnsfp_md5s);
 
     my $fasta = $self->required_param('fasta_file');
-    if ($sift_run_type ne 'NONE' || $pph_run_type ne 'NONE') {
+    if ($sift_run_type != NONE || $pph_run_type != NONE) {
       my @dir = split('/', $fasta);
       pop @dir;
       make_path(join('/', @dir));
