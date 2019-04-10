@@ -53,9 +53,9 @@ sub run {
     -registry_file => $self->param('ensembl_registry'),
     -species => $self->param('species'),
     -working_dir => $working_dir,
-    -dbnsfp_file =>  $annotation_file,
+    -annotation_file =>  $annotation_file,
     -assembly => $assembly,
-    -dbnsfp_version => $annotation_file_version,
+    -annotation_file_version => $annotation_file_version,
   );
 
   my $translation_md5 = $self->param('translation_md5');
