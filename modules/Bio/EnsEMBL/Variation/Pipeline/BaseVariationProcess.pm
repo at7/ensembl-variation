@@ -169,6 +169,5 @@ sub get_species_id {
   my $species_id = $dbc->sql_helper()->execute_simple( -SQL =>qq/select species_id from $current_db_name.meta where meta_key = 'species.production_name' and meta_value ='$species';/);
   return $species_id->[0];
 }
-  
 
 1;
